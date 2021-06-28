@@ -1,9 +1,12 @@
 package com.cckp.zk.dislock;
 
+import org.I0Itec.zkclient.IZkDataListener;
 import org.I0Itec.zkclient.ZkClient;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * @author ljs
@@ -17,6 +20,18 @@ public class DisClient {
 
     private ZkClient zkClient = new ZkClient("aliyun-server:2181,aliyun-server:2182,aliyun-server:2183");
 
+    private CountDownLatch countDownLatch;
+
+    public DisClient() {
+        if (!zkClient.exists(LOCK_PATH)) {
+            synchronized (DisClient.class) {
+                if (!zkClient.exists(LOCK_PATH)) {
+                    zkClient.createPersistent(LOCK_PATH);
+                }
+            }
+        }
+    }
+
     /**
      * 创建临时顺序节点并将序号返回
      */
@@ -25,14 +40,17 @@ public class DisClient {
         return lock.replace(LOCK_PATH + "/", "");
     }
 
-    private String getMinNode() {
-        List<String> children = zkClient.getChildren(LOCK_PATH);
-        Collections.sort(children);
-        return children.get(0);
+    private String getBeforeNode(List<String> children, String node) {
+        int index = Collections.binarySearch(children, node);
+        return children.get(index - 1);
     }
 
 
     public void getDisLock() {
+        getDisLock(null, null);
+    }
+
+    private void getDisLock(String curNode, List<String> children) {
         /**
          * step1:创建临时顺序节点
          * step2:获取当前最小序号
@@ -41,26 +59,57 @@ public class DisClient {
          *  - 获取失败
          *      等待通知->接收到通知->再次尝试获取锁
          * */
-        String tempSNode = createTempSNode();
-        String minNode = getMinNode();
-        tryGetLock(tempSNode, minNode);
+        if (curNode == null) {
+            curNode = createTempSNode();
+            //获取curNode 极其前面的 节点 的集合
+            children = zkClient.getChildren(LOCK_PATH);
+            Collections.sort(children);
+        }
+        String name = Thread.currentThread().getName();
+        if (tryGetLock(curNode, children.get(0))) {
+            //获取锁成功
+            System.out.println("获取锁成功:" + name+" curName:"+curNode);
+        } else {
+            System.out.println("获取锁失败:" + name+" curName:"+curNode);
+            //获取锁失败
+            waitForLock(curNode, children);
+            getDisLock(curNode, children);
+        }
 
     }
 
-    public void tryGetLock(String curNode, String minNode) {
-        String name = Thread.currentThread().getName();
-        if (!curNode.equals(minNode)) {
-            System.out.println("线程" + name + "没有获取到锁");
-            waitForLock();
-            tryGetLock(curNode, getMinNode());
-        } else {
-            System.out.println("线程" + name + "获取到锁了");
-        }
+    private boolean tryGetLock(String curNode, String minNode) {
+        return Objects.equals(curNode, minNode);
     }
 
     //等待之前节点锁释放，如何判断锁被释放，需要唤醒线程继续尝试tryGetLock()
-    public void waitForLock() {
+    private void waitForLock(String curNode, List<String> children) {
+        IZkDataListener iZkDataListener = new IZkDataListener() {
+            @Override
+            public void handleDataChange(String s, Object o) throws Exception {
 
+            }
+
+            @Override
+            public void handleDataDeleted(String s) throws Exception {
+                //删除是通知线程再次获取锁
+                countDownLatch.countDown();
+            }
+        };
+        String beforeNode = getBeforeNode(children, curNode);
+        zkClient.subscribeDataChanges(LOCK_PATH + "/" + beforeNode, iZkDataListener);
+        if (zkClient.exists(LOCK_PATH + "/" + beforeNode)) {
+            //等待beforeNode的删除通知
+            countDownLatch = new CountDownLatch(1);
+            try {
+                countDownLatch.await();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        } else {
+            //解除监听+再次尝试获取锁
+            zkClient.unsubscribeDataChanges(LOCK_PATH + "/" + beforeNode, iZkDataListener);
+        }
     }
 
 

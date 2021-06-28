@@ -15,9 +15,11 @@ public class DisLockTest {
     }
     static class DisLockRunnable implements Runnable{
 
+        @Override
         public void run() {
             //抢锁
-
+            DisClient client = new DisClient();
+            client.getDisLock();
         }
     }
 }
