@@ -40,17 +40,12 @@ public class DisClient {
         return lock.replace(LOCK_PATH + "/", "");
     }
 
-    private String getBeforeNode(List<String> children, String node) {
-        int index = Collections.binarySearch(children, node);
-        return children.get(index - 1);
-    }
-
 
     public void getDisLock() {
-        getDisLock(null, null);
+        getDisLock(null);
     }
 
-    private void getDisLock(String curNode, List<String> children) {
+    private void getDisLock(String curNode) {
         /**
          * step1:创建临时顺序节点
          * step2:获取当前最小序号
@@ -61,29 +56,32 @@ public class DisClient {
          * */
         if (curNode == null) {
             curNode = createTempSNode();
-            //获取curNode 极其前面的 节点 的集合
-            children = zkClient.getChildren(LOCK_PATH);
-            Collections.sort(children);
         }
         String name = Thread.currentThread().getName();
-        if (tryGetLock(curNode, children.get(0))) {
+        if (tryGetLock(curNode)) {
             //获取锁成功
-            System.out.println("获取锁成功:" + name+" curName:"+curNode);
+            System.out.println("获取锁成功:" + name + " curName:" + curNode);
+            //删除节点
+            zkClient.delete(LOCK_PATH+"/"+curNode);
         } else {
-            System.out.println("获取锁失败:" + name+" curName:"+curNode);
+            System.out.println("获取锁失败:" + name + " curName:" + curNode);
             //获取锁失败
-            waitForLock(curNode, children);
-            getDisLock(curNode, children);
+            waitForLock(curNode);
+            getDisLock(curNode);
         }
 
     }
 
-    private boolean tryGetLock(String curNode, String minNode) {
+    private boolean tryGetLock(String curNode) {
+        List<String> children = zkClient.getChildren(LOCK_PATH);
+        Collections.sort(children);
+        String minNode = children.get(0);
         return Objects.equals(curNode, minNode);
     }
 
     //等待之前节点锁释放，如何判断锁被释放，需要唤醒线程继续尝试tryGetLock()
-    private void waitForLock(String curNode, List<String> children) {
+    private void waitForLock(String curNode) {
+
         IZkDataListener iZkDataListener = new IZkDataListener() {
             @Override
             public void handleDataChange(String s, Object o) throws Exception {
@@ -96,8 +94,14 @@ public class DisClient {
                 countDownLatch.countDown();
             }
         };
-        String beforeNode = getBeforeNode(children, curNode);
+        //获取curNode 及其前面的 节点 的集合
+        List<String> children = zkClient.getChildren(LOCK_PATH);
+        Collections.sort(children);
+        int index = Collections.binarySearch(children, curNode);
+        String beforeNode = children.get(index - 1);
+
         zkClient.subscribeDataChanges(LOCK_PATH + "/" + beforeNode, iZkDataListener);
+
         if (zkClient.exists(LOCK_PATH + "/" + beforeNode)) {
             //等待beforeNode的删除通知
             countDownLatch = new CountDownLatch(1);
