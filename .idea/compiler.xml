@@ -7,16 +7,18 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="kafka-demo" />
-        <module name="redis-demo" />
-        <module name="source" />
         <module name="zk-client" />
+        <module name="redis-demo" />
+        <module name="jvmlock" />
+        <module name="source" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel target="8">
-      <module name="kafka-demo" target="1.5" />
-      <module name="redis-demo" target="1.5" />
-      <module name="source" target="1.5" />
-      <module name="zk-client" target="7" />
+      <module name="jvmlock" target="8" />
+      <module name="kafka-demo" target="8" />
+      <module name="redis-demo" target="8" />
+      <module name="source" target="8" />
+      <module name="zk-client" target="8" />
     </bytecodeTargetLevel>
   </component>
 </project>
